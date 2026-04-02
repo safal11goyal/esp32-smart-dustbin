@@ -1,0 +1,9 @@
+{
+  "host": "0.0.0.0",
+  "port": 5000,
+  "image_size": [224, 224],
+  "model_path": "models/keras_model.h5",
+  "labels_path": "models/labels.txt",
+  "images_dir": "images",
+  "received_dir": "received"
+}

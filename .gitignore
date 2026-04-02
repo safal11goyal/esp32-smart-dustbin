@@ -1,0 +1,51 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pyre/
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+.python/
+.python-version
+
+# Local secrets/config overrides
+.env
+.env.*
+!.env.example
+
+# Build/distribution artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# ML backend local assets and runtime outputs
+ml_backend/images/
+ml_backend/received/
+ml_backend/.python/
+ml_backend/.venv/
+ml_backend/.python-version
+ml_backend/models/*.h5
+ml_backend/models/*.keras
+ml_backend/models/*.tflite
+ml_backend/models/*.pb
+ml_backend/models/saved_model/
+
+# Logs
+*.log
