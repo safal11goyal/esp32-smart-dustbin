@@ -19,6 +19,8 @@ const demoFrames = [
 const state = {
   frameIndex: 0,
   history: [],
+  latestDetectionKey: null,
+  eventsConnected: false,
 };
 
 const cameraImage = document.querySelector("#cameraImage");
@@ -156,12 +158,47 @@ function renderHistory() {
 
 function toHistoryItem(record) {
   return {
+    key: getDetectionKey(record),
     name: record.saved_as,
     result: record.result,
     confidence: `${Math.round(Number(record.confidence || 0) * 100)}%`,
     image: `${getBaseUrl()}${record.received_url}`,
     detail: `Model returned ${String(record.result || "unknown").toUpperCase()} from label ${record.raw}.`,
   };
+}
+
+function getDetectionKey(record) {
+  return `${record.saved_as || "unknown"}::${record.created_at || "unknown"}`;
+}
+
+function applyDetection(record, options = {}) {
+  const baseUrl = getBaseUrl();
+  const detectionKey = getDetectionKey(record);
+  const result = record.result || "unknown";
+  const confidence = Number(record.confidence || 0);
+  const imageUrl = `${baseUrl}${record.received_url}`;
+
+  state.latestDetectionKey = detectionKey;
+
+  renderFrame({
+    image: imageUrl,
+    imageName: record.saved_as || "Waiting for first detection",
+    result,
+    confidence,
+    detail: `Model returned ${String(result).toUpperCase()} from label ${record.raw}.`,
+    frontDistance: frontDistance.textContent,
+    binDistance: binDistance.textContent,
+    fillPercent: extractCentimeters(fillPercentage.textContent),
+    fillDetail: fillDetail.textContent,
+    servoPosition: result === "bio" ? "Left Gate" : result === "nonbio" ? "Right Gate" : "Neutral",
+    queueState: options.queueState || "Prediction Complete",
+    statusText: options.statusText || `Live Result: ${String(result).toUpperCase()}`,
+    timestamp: record.created_at || lastSync.textContent,
+  });
+
+  const nextHistoryItem = toHistoryItem(record);
+  state.history = [nextHistoryItem, ...state.history.filter((item) => item.key !== detectionKey)].slice(0, 6);
+  renderHistory();
 }
 
 function setActivityState(title, detail) {
@@ -296,27 +333,43 @@ async function loadDetections() {
     renderHistory();
 
     if (detections.length > 0) {
-      const latest = detections[0];
-      renderFrame({
-        image: `${baseUrl}${latest.received_url}`,
-        imageName: latest.saved_as,
-        result: latest.result,
-        confidence: Number(latest.confidence || 0),
-        detail: `Model returned ${String(latest.result || "unknown").toUpperCase()} from label ${latest.raw}.`,
-        frontDistance: frontDistance.textContent,
-        binDistance: binDistance.textContent,
-        fillPercent: extractCentimeters(fillPercentage.textContent),
-        fillDetail: fillDetail.textContent,
-        servoPosition:
-          latest.result === "bio" ? "Left Gate" : latest.result === "nonbio" ? "Right Gate" : "Neutral",
-        queueState: "Prediction Complete",
-        statusText: `Live Result: ${String(latest.result || "unknown").toUpperCase()}`,
-        timestamp: latest.created_at || lastSync.textContent,
-      });
+      applyDetection(detections[0]);
     }
   } catch (_error) {
     renderHistory();
   }
+}
+
+function connectDetectionStream() {
+  const baseUrl = getBaseUrl();
+  const eventSource = new EventSource(`${baseUrl}/events`);
+
+  eventSource.addEventListener("connected", () => {
+    state.eventsConnected = true;
+  });
+
+  eventSource.addEventListener("detection", (event) => {
+    try {
+      const record = JSON.parse(event.data);
+      const detectionKey = getDetectionKey(record);
+
+      if (detectionKey === state.latestDetectionKey) {
+        return;
+      }
+
+      applyDetection(record, {
+        queueState: "Live Update Received",
+        statusText: `Live Result: ${String(record.result || "unknown").toUpperCase()}`,
+      });
+      checkHealth();
+    } catch (_error) {
+      // Ignore malformed events and keep the stream alive.
+    }
+  });
+
+  eventSource.onerror = () => {
+    state.eventsConnected = false;
+  };
 }
 
 function handleImageUpload(event) {
@@ -417,6 +470,8 @@ renderHistory();
 loadDetections();
 checkHealth();
 window.setInterval(checkHealth, 15000);
+window.setInterval(loadDetections, 30000);
+connectDetectionStream();
 analyzeButton.disabled = true;
 window.addEventListener("load", () => {
   window.setTimeout(() => {

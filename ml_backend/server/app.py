@@ -4,11 +4,13 @@ import io
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Lock
 from uuid import uuid4
 
 import numpy as np
 import tensorflow as tf
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from PIL import Image
 
 
@@ -37,6 +39,8 @@ BIN_EMPTY_DISTANCE_CM = float(SETTINGS.get("bin_empty_distance_cm", 10.5))
 BIN_FULL_DISTANCE_CM = float(SETTINGS.get("bin_full_distance_cm", 2.0))
 
 app = Flask(__name__)
+event_subscribers: set[Queue[tuple[str, dict[str, object]]]] = set()
+event_subscribers_lock = Lock()
 
 
 def ensure_required_files() -> None:
@@ -72,6 +76,30 @@ def ensure_directories() -> None:
 def load_labels() -> list[str]:
     raw_labels = LABELS_PATH.read_text(encoding="utf-8").splitlines()
     return [label.strip() for label in raw_labels if label.strip()]
+
+
+def subscribe_events() -> Queue[tuple[str, dict[str, object]]]:
+    subscriber: Queue[tuple[str, dict[str, object]]] = Queue()
+    with event_subscribers_lock:
+        event_subscribers.add(subscriber)
+    return subscriber
+
+
+def unsubscribe_events(subscriber: Queue[tuple[str, dict[str, object]]]) -> None:
+    with event_subscribers_lock:
+        event_subscribers.discard(subscriber)
+
+
+def publish_event(event_type: str, payload: dict[str, object]) -> None:
+    with event_subscribers_lock:
+        subscribers = list(event_subscribers)
+
+    for subscriber in subscribers:
+        subscriber.put((event_type, payload))
+
+
+def format_sse(event_type: str, payload: dict[str, object]) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
 
 
 def prepare_image(image_bytes: bytes) -> np.ndarray:
@@ -145,6 +173,7 @@ def append_detection_record(
         json.dumps({"detections": updated}, indent=2) + "\n",
         encoding="utf-8",
     )
+    publish_event("detection", record)
     return record
 
 
@@ -355,6 +384,34 @@ def detections() -> tuple[dict[str, list[dict[str, object]]], int]:
     return load_detection_log(), 200
 
 
+@app.get("/events")
+def events() -> Response:
+    subscriber = subscribe_events()
+
+    def event_stream() -> object:
+        try:
+            yield format_sse(
+                "connected",
+                {"connected_at": datetime.now().isoformat(timespec="seconds")},
+            )
+            while True:
+                try:
+                    event_type, payload = subscriber.get(timeout=20)
+                    yield format_sse(event_type, payload)
+                except Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            unsubscribe_events(subscriber)
+
+    response = Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
+
+
 @app.post("/predict")
 def predict() -> tuple[object, int]:
     image_bytes = request.get_data(cache=False, as_text=False, parse_form_data=False)
@@ -413,4 +470,4 @@ def predict_file() -> tuple[object, int]:
 
 
 if __name__ == "__main__":
-    app.run(host=HOST, port=PORT, debug=False)
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)
