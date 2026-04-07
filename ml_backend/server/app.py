@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Lock
 from uuid import uuid4
+
+# Force TensorFlow to use legacy Keras for older Teachable Machine H5 models.
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
 import numpy as np
 import tensorflow as tf
@@ -109,9 +113,23 @@ def prepare_image(image_bytes: bytes) -> np.ndarray:
     return np.expand_dims(image_array, axis=0)
 
 
+class CompatibleDepthwiseConv2D(tf.keras.layers.DepthwiseConv2D):
+    """Backward-compat shim for legacy H5 configs that include groups=1."""
+
+    @classmethod
+    def from_config(cls, config: dict[str, object]) -> "CompatibleDepthwiseConv2D":
+        patched = dict(config)
+        patched.pop("groups", None)
+        return super().from_config(patched)
+
+
 ensure_directories()
 ensure_required_files()
-model = tf.keras.models.load_model(MODEL_PATH)
+model = tf.keras.models.load_model(
+    MODEL_PATH,
+    compile=False,
+    custom_objects={"DepthwiseConv2D": CompatibleDepthwiseConv2D},
+)
 labels = load_labels()
 
 

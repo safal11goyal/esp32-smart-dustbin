@@ -1,56 +1,64 @@
-# Teachable Machine Flask Server
+# ESP32 Smart Waste Segregator ML Backend
+
+This backend serves image classification predictions for ESP32 camera captures.
 
 Project layout:
 
-- `server/` holds the Python code
-- `configs/` holds configuration
-- `models/` holds `keras_model.h5` and `labels.txt`
-- `images/` holds images you want to classify locally
-- `.venv/` holds installed packages
-- `.python/` holds the local Python 3.11 runtime used by `.venv`
+- `server/` contains Flask API and inference code
+- `configs/` contains runtime settings
+- `models/` contains `keras_model.h5` and `labels.txt`
+- `images/` contains local test images
+- `received/` stores images received by `/predict`
 
-Put these Teachable Machine export files in `models/`:
+## Python Version
 
-- `models/keras_model.h5`
-- `models/labels.txt`
+This project is configured for **Python 3.12 or 3.13** on Windows.
+Python 3.14 is not currently supported by TensorFlow wheels on Windows.
 
-Put any sample images you want to test in `images/`.
+## Setup (Windows PowerShell)
 
-## Run
-
-```bash
-source .venv/bin/activate
-python server/main.py
+```powershell
+cd C:\Users\goyal\OneDrive\Desktop\esp32-smart-waste-segregator\ml_backend
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e .
 ```
 
-The API starts on `http://127.0.0.1:5000`.
+If you only have Python 3.12 installed, use:
 
-## Test
-
-```bash
-curl -X POST http://127.0.0.1:5000/predict \
-  --data-binary @images/your-image.jpg
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e .
 ```
 
-You can also predict by filename for an image already stored in `images/`:
+## Run Server
 
-```bash
-curl -X POST http://127.0.0.1:5000/predict-file \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"your-image.jpg"}'
+```powershell
+.\.venv\Scripts\Activate.ps1
+python server\main.py
 ```
 
-## Bulk Test
+The API starts at `http://127.0.0.1:5000`.
 
-Run predictions on every image in `images/` in random order:
+## Health Check
 
-```bash
-source .venv/bin/activate
-python server/bulk_test.py
+```powershell
+curl http://127.0.0.1:5000/health
 ```
 
-Use a fixed shuffle order if needed:
+## Predict With Raw Image Bytes
 
-```bash
-python server/bulk_test.py --seed 42
+```powershell
+curl -X POST http://127.0.0.1:5000/predict --data-binary "@images\your-image.jpg"
+```
+
+## Predict By Existing Filename
+
+```powershell
+curl -X POST http://127.0.0.1:5000/predict-file `
+  -H "Content-Type: application/json" `
+  -d "{\"filename\":\"your-image.jpg\"}"
 ```
